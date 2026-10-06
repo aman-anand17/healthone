@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------------
+# Credentials. This is the part that matters.
+#
+# Snowflake credentials for this project live OUTSIDE the repository, in an
+# isolated SNOWFLAKE_HOME (~/.snowflake-ho360). These patterns are the second
+# line of defence, in case one is ever written into the tree by accident.
+# ---------------------------------------------------------------------------
+*.p8
+*.pub
+connections.toml
+config.toml
+.env
+*.secrets*
+.streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# Generated, and reproducible from source
+# ---------------------------------------------------------------------------
+# Synthetic CSVs and load SQL - regenerate with tools/generate_data.py
+build/
+# The Snowflake CLI's deployment bundle, rebuilt on every `streamlit deploy`
+app/output/
+
+# ---------------------------------------------------------------------------
+# Local assistant / editor configuration. Tool hygiene, not project content.
+# ---------------------------------------------------------------------------
+CLAUDE.md
+.claude/
+.cursor/
+.aider*
+*.code-workspace
+
+# ---------------------------------------------------------------------------
+# Python and OS noise
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+Thumbs.db
+
+# Office lock files, created while a document is open. Never committable - git
+# cannot even read them ("Permission denied") while the app holds them.
+~$*
+
+# ---------------------------------------------------------------------------
+# Local build scratch that is not part of the project
+# ---------------------------------------------------------------------------
+# Generated backgrounds for the submission deck, rebuilt by its build script
+submission/.bg/
+# Output of early spike probes against accounts that no longer exist
+spike/runs/

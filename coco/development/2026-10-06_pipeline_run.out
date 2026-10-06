@@ -1,0 +1,19 @@
+﻿I'll run all four steps against Snowflake. Let me execute them in parallel.Step 3 returned 0 rows — let me check the actual statuses in that view, and run step 4 in parallel.Here are the four results:
+
+**1. Stage files:** 14 files in `HEALTHONE.RAW.DOC_STAGE` — 7 `.md` and 7 `.pdf` files (SAFETY_DOC_005 through SAFETY_DOC_011).
+
+**2. Ingest/Extract:** Backend = `AI_COMPLETE`, processed **7 documents** (43 chunks). 5 proposals are pending review. Per-doc breakdown: DOC_005/006/007/010 each have 1 approved rule; DOC_008 has 1 proposed but 0 approved; DOC_009 and DOC_011 had no proposals extracted.
+
+**3. Pending proposals:** The view `V_PROPOSAL_RESOLVED` has no `PENDING` status — all 9 rows are either `PROPOSED` (5) or `APPROVED` (4):
+
+| DOC_ID | INTERVAL_DAYS | STATUS |
+|---|---|---|
+| SAFETY_DOC_005 | 90 | PROPOSED + APPROVED |
+| SAFETY_DOC_006 | 84 | PROPOSED + APPROVED |
+| SAFETY_DOC_007 | 90 | PROPOSED + APPROVED |
+| SAFETY_DOC_008 | 60 | PROPOSED |
+| SAFETY_DOC_010 | 42 | PROPOSED + APPROVED |
+
+**4. Case pipeline:** `open_after` = **33**, `evidence_rows` = **80**. Pipeline ran successfully (no skipped rules, no paused rules).
+
+Reminder: save the session artifact to `coco/<phase>/YYYY-MM-DD_topic.md`.

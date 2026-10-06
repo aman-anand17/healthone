@@ -1,0 +1,19 @@
+﻿I'll load the patient-evidence-review skill first.Now let me find the highest-priority open case and gather its details.Here is the investigation of the highest-priority open case.
+
+---
+
+**Case CAS-83c22da7** | Priority: **HIGH** | Status: OPEN
+
+**Rule:** RUL-004 v1 requires serum creatinine every 42 days (+7 day grace) for patients on CardioZen with chronic kidney disease. It cites SAFETY_DOC_010 section 3, which states verbatim: *"serum creatinine measured every six weeks"*.
+
+The source passage adds: *"Where a site cannot meet the six-week interval from existing capacity, the site pharmacy lead should escalate to the Committee rather than allow the interval to extend."*
+
+**Evidence verdicts:**
+
+1. **AGREES -- Drug active.** CardioZen is recorded as active. EHR shows status ACTIVE with therapy start 2025-07-08 (ORD-000005); pharmacy confirms last fill dispensed 2026-08-06 with 3 fills in the last 90 days (FLL-000039). No conflict -- both sources corroborate active therapy.
+
+2. **AGREES -- Condition present.** Chronic kidney disease is confirmed. EHR diagnosis onset 2024-08-12 (DXR-000005); claims show a nephrology outpatient review on 2026-04-24 (CLA-000006).
+
+3. **MISSING -- Required lab.** No serum creatinine result was found in the available records between 2026-07-14 and 2026-09-01. The reconciler searched CONF_LAB_RESULT via P360_LAB_TIMELINE for test LAB-CREAT, person PER-001205, across that window.
+
+**Why this case exists:** The patient has an active CardioZen prescription and confirmed CKD, yet no creatinine lab result appears in the monitoring window. Both preconditions agree across independent sources, making the missing lab a genuine gap -- not a false alarm from stale medication data.

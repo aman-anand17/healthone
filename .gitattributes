@@ -1,0 +1,13 @@
+# Git must not touch binary files. Without this, PDFs and images get LF->CRLF
+# line-ending conversion applied to them and are corrupted on checkout - git
+# warned about exactly that when staging/documents/*.pdf was first added.
+*.pdf  binary
+*.pptx binary
+*.png  binary
+*.jpg  binary
+*.p8   binary
+
+# Shell wrappers must stay LF, or they fail under bash with
+# "bad interpreter: /usr/bin/env bash^M" after a checkout on Windows.
+tools/sfx                text eol=lf
+tools/deploy_new_account text eol=lf

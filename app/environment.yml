@@ -1,0 +1,15 @@
+# Streamlit in Snowflake, WAREHOUSE runtime.
+#
+# DO NOT list python here. SiS rejects it as a package
+# ("Packages not found: python==3.11") - the Python version is a property of
+# the runtime, not a dependency. Only Snowflake Anaconda channel packages
+# belong in this list.
+#
+# Deliberately minimal: the app needs no charting or ML libraries, and every
+# extra dependency is one more thing that can fail on demo day.
+name: sf_env
+channels:
+  - snowflake
+dependencies:
+  - streamlit
+  - snowflake-snowpark-python

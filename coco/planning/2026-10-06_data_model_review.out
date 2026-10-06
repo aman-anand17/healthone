@@ -1,0 +1,15 @@
+﻿I'll inspect the HEALTHONE database structure to give you a grounded critique.Here's my critique based on what's actually deployed:
+
+---
+
+**Two strongest decisions:**
+
+1. **Clean RAW → CONF → P360 → CASES layering.** Four schemas with strict directional dependency: 12 RAW tables feed ~18 CONF tables, which feed 4 P360 dynamic tables, which feed DT_CASE_CANDIDATE. No layer reaches backward. The CONF crosswalk (CONF_PERSON_XWALK) centralizes identity resolution in one place. This is a well-disciplined medallion architecture for a hackathon build.
+
+2. **Mutable case state separated from detection.** DT_CASE_CANDIDATE is a deterministic dynamic table — purely derived, no side effects. Mutable workflow state (status, disposition, reviewer notes) lives in CASE_REGISTRY as a regular table, with CASE_EVIDENCE and AUDIT_EVENT alongside it. This means the detection logic can be refreshed without corrupting in-flight reviews. The AUDIT_CHECKPOINT table and V_AUDIT_INTEGRITY view suggest tamper-evidence was considered, which is unusual rigor for a prototype.
+
+**Two weakest or riskiest decisions:**
+
+1. **All dynamic tables run SCHEDULER=DISABLE with FULL refresh mode.** There is no incremental refresh anywhere. DT_CASE_CANDIDATE's SQL is complex (multiple CTEs, CROSS JOINs against DATE_ANCHOR, QUALIFY dedup) and re-scans the entire dataset on every refresh. With 33 rows this is invisible; at real scale this will be the first thing to break. The DATE_ANCHOR CROSS JOIN pattern also prevents Snowflake from ever electing incremental mode.
+
+2. **RULES schema has no versioned history table.** SAFETY_RULE has 4 rows with a VERSION column and change tracking ON, but there's no SAFETY_RULE_HISTORY table — only RULE_PROPOSAL (5 rows) feeding SAFETY_RULE. If a rule is updated in-place, the previous version is lost. For a system whose core premise is "human approves then deterministic checks apply," the absence of an immutable rule audit trail is a meaningful gap.

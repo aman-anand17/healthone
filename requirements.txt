@@ -1,0 +1,11 @@
+# Dependencies for the PUBLIC deployment on Streamlit Community Cloud.
+#
+# Streamlit in Snowflake does NOT read this file - it reads
+# app/environment.yml, which lists Snowflake Anaconda channel packages and
+# must not name python as a dependency. Two runtimes, two manifests; that
+# is a property of the platforms, not duplication we chose.
+#
+# Deliberately minimal. Every extra dependency is one more thing that can
+# fail to resolve on a free tier the day before a deadline.
+streamlit>=1.36
+snowflake-connector-python>=3.12

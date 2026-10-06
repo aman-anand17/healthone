@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# ===========================================================================
+# Snowflake CLI for this project, against ONE isolated credential store.
+#
+# WHY A WRAPPER AND NOT BARE `snow`
+#
+# SNOWFLAKE_HOME is forced to ~/.snowflake-ho360, which is NOT the CLI's
+# default (~/.snowflake). That is the whole point and it is a hard requirement,
+# not a preference: this project is built on a laptop that also holds an
+# unrelated corporate Snowflake credential. Pointing the CLI at a separate
+# home means this project physically cannot read or modify that credential -
+# no profile name collision, no accidental `--connection` typo reaching the
+# wrong account, no shared config file to corrupt.
+#
+# Every account this project has ever used has been a disposable trial created
+# for the hackathon. Nothing here touches, or can touch, anything else.
+#
+# WHY ONE WRAPPER AND NOT FIVE
+#
+# This replaced tools/sfx, sf2, sf3, sf4 and sf5 - one per account, because
+# hackathon trials kept expiring or arriving without Cortex entitlement. Five
+# near-identical files is a maintenance trap: the comment at the top of each
+# drifts out of date, and it is genuinely hard to tell which one points at the
+# live account. The profile is now a parameter.
+#
+# USAGE
+#   ./tools/sfx sql -q "SELECT CURRENT_ACCOUNT()"       # uses $HO_PROFILE
+#   HO_PROFILE=hackathon5 ./tools/sfx sql -f sql/00_setup.sql
+#   HO_PROFILE=reviewer   ./tools/sfx sql -q "..."      # test as HO_REVIEWER
+#
+# SETUP (once): put a profile in ~/.snowflake-ho360/connections.toml -
+# see INSTALLATION.md. Credentials never live in this repository; .gitignore
+# blocks *.p8, *.pub, connections.toml and config.toml.
+# ===========================================================================
+set -u
+
+export SNOWFLAKE_HOME="$HOME/.snowflake-ho360"
+
+# NO DEFAULT PROFILE, deliberately. The first version of this script defaulted
+# to "hackathon", and a command run without HO_PROFILE silently executed
+# against the FIRST hackathon account - a dead trial - and reported its
+# account id as though nothing were wrong. Five accounts have come and gone in
+# this project; guessing which one is meant is not a service, it is a trap.
+# Fail and say so instead.
+if [ -z "${HO_PROFILE:-}" ]; then
+  echo "FATAL: HO_PROFILE is not set, and there is no default on purpose." >&2
+  echo "       Pick the profile explicitly, e.g.:" >&2
+  echo "         HO_PROFILE=hackathon5 $0 sql -q \"SELECT CURRENT_ACCOUNT()\"" >&2
+  echo "       Profiles live in \$SNOWFLAKE_HOME/connections.toml." >&2
+  exit 2
+fi
+export SNOWFLAKE_DEFAULT_CONNECTION_NAME="$HO_PROFILE"
+
+# The Snowflake CLI installs into the Python user scripts directory on Windows,
+# which is not on PATH in a fresh shell.
+export PATH="$PATH:$HOME/AppData/Roaming/Python/Python312/Scripts"
+
+if [ ! -d "$SNOWFLAKE_HOME" ]; then
+  echo "FATAL: $SNOWFLAKE_HOME does not exist." >&2
+  echo "       Create it and add a connections.toml - see INSTALLATION.md." >&2
+  echo "       Do NOT fall back to ~/.snowflake; this project keeps its" >&2
+  echo "       credentials isolated on purpose." >&2
+  exit 1
+fi
+
+exec snow "$@"

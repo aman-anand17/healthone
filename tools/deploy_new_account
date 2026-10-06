@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+# ===========================================================================
+# ONE-COMMAND BUILD OF THE ENTIRE PRODUCT INTO A FRESH SNOWFLAKE ACCOUNT.
+#
+# Written when the account had to be replaced the day before feature freeze,
+# because "rebuild it by hand from the project journal" is not a recovery plan.
+#
+# REWRITTEN 2026-10-03, for the THIRD account. The first version was written
+# before sql/27..32 existed and would have rebuilt a product missing the
+# Cortex Search service, the AI-extraction cutover, the RBAC grants, the COST
+# CONTROLS, the per-rule enable toggle and the whole corroboration layer -
+# i.e. everything built after 30 Aug, including both features Aman asked for.
+# A deploy script that silently omits a third of the product is worse than no
+# deploy script, so it now derives nothing from memory: the ordered list below
+# is the product, and tests/ run at the end to prove it.
+#
+# TARGETING AN ACCOUNT
+#   The CLI wrapper is taken from $HO_SF so this file never has to change
+#   again when the account does:
+#       HO_SF=./tools/sfx ./tools/deploy_new_account        # explicit
+#       ./tools/deploy_new_account                          # default below
+#
+# PREREQUISITES, in order, both ONCE per account:
+#   1. A profile in ~/.snowflake-ho360/connections.toml and a tools/sfN wrapper.
+#   2. As ACCOUNTADMIN:   $HO_SF sql -f sql/26_new_account_setup.sql
+#      That one creates the warehouse, the roles, the account-level grants
+#      (DMF / masking / row-access / tag), SNOWFLAKE.CORTEX_USER, and sets
+#      CORTEX_ENABLED_CROSS_REGION - without which every Claude model fails.
+#
+# USAGE
+#   ./tools/deploy_new_account            # full build, then the test suites
+#   ./tools/deploy_new_account 23         # resume from the step matching "23"
+#   SKIP_TESTS=1 ./tools/deploy_new_account
+# ===========================================================================
+set -u
+cd "$(dirname "$0")/.." || exit 1
+
+# Default to the single parameterised wrapper. This used to default to a
+# per-account wrapper that no longer exists, so a fresh clone failed on line 1
+# with "wrapper not found" and advice to copy another file that was also gone.
+HO_SF="${HO_SF:-./tools/sfx}"
+if [ ! -x "$HO_SF" ]; then
+  echo "FATAL: CLI wrapper '$HO_SF' not found or not executable."
+  echo "       Expected ./tools/sfx. Try: chmod +x tools/sfx"
+  exit 1
+fi
+
+# tools/sfx deliberately has no default profile, so fail here with a useful
+# message rather than 40 steps of identical authentication errors.
+if [ -z "${HO_PROFILE:-}" ]; then
+  echo "FATAL: HO_PROFILE is not set, so every step below would fail to"
+  echo "       authenticate. Set it to a profile in"
+  echo "       \$SNOWFLAKE_HOME/connections.toml - see INSTALLATION.md."
+  echo "       Example: HO_SF=./tools/sfx HO_PROFILE=hackathon $0"
+  exit 1
+fi
+
+mkdir -p build
+LOG="build/deploy_new_account.out"
+: > "$LOG"
+FROM="${1:-}"
+SEEN=0
+FAILED=0
+
+run() {  # run <label> <sf-args...>
+  local label="$1"; shift
+  if [ -n "$FROM" ] && [ "$SEEN" = "0" ]; then
+    case "$label" in *"$FROM"*) SEEN=1 ;; *) echo "SKIP  $label"; return 0 ;; esac
+  fi
+  local step="build/.step.out"
+  : > "$step"
+  {
+    echo ""
+    echo "########## $label ##########"
+  } >> "$LOG"
+  if "$HO_SF" "$@" > "$step" 2>&1; then
+    # `snow` exits 0 even when a statement inside the file failed, so the exit
+    # code alone is not evidence. Grep the step's own output, not the whole
+    # log, or every later step inherits the first error.
+    if grep -qiE "^\| error:|SQL compilation error|SQL execution error|Uncaught exception|does not exist or not authorized" "$step"; then
+      echo "FAIL  $label   (statement error - see $LOG)"
+      FAILED=$((FAILED + 1))
+    else
+      echo "OK    $label"
+    fi
+  else
+    echo "FAIL  $label   (exit code - see $LOG)"
+    FAILED=$((FAILED + 1))
+  fi
+  cat "$step" >> "$LOG"
+  rm -f "$step"
+}
+
+echo "=== HealthOne 360 -> fresh account build  (via $HO_SF) ==="
+"$HO_SF" sql -q "SELECT CURRENT_ACCOUNT() AS ACCOUNT, CURRENT_USER() AS USER, CURRENT_REGION() AS REGION;" 2>&1 | grep -E "^\|" | head -4
+
+# --- structure -------------------------------------------------------------
+run "sql/00_setup (database + schemas)"           sql -f sql/00_setup.sql
+run "grant CREATE STREAMLIT (ACCOUNTADMIN)"       sql -q "USE ROLE ACCOUNTADMIN; GRANT CREATE STREAMLIT ON SCHEMA HEALTHONE.APP TO ROLE HO_ADMIN; GRANT CREATE STAGE ON SCHEMA HEALTHONE.APP TO ROLE HO_ADMIN;"
+run "sql/01_ref (reference vocabulary)"           sql -f sql/01_ref.sql
+run "sql/02_raw (landing tables)"                 sql -f sql/02_raw.sql
+run "sql/03_conf (conformed layer DDL)"           sql -f sql/03_conf.sql
+run "sql/04_p360 (4 dynamic tables)"              sql -f sql/04_p360.sql
+run "sql/05_rules (proposal + rule tables)"       sql -f sql/05_rules.sql
+run "sql/06_cases (detection + registry)"         sql -f sql/06_cases.sql
+run "sql/06b_reconciler (evidence verdicts)"      sql -f sql/06b_reconciler.sql
+run "sql/07_refresh_action"                       sql -f sql/07_refresh_action.sql
+
+# --- data ------------------------------------------------------------------
+# PUT + COPY + RAW->CONF transforms + seed RUL-001 + refresh cascade.
+# sql/03b, 05b and 14 are folded into this generated file - do not add them
+# separately or the seed inserts run twice.
+run "build/run_all (load people, seed, refresh)"  sql -f build/run_all.sql
+run "sql/12_seed_rules_002_003"                   sql -f sql/12_seed_rules_002_003.sql
+
+# --- governance ------------------------------------------------------------
+run "sql/10_phi_protection (masking + break-glass)" sql -f sql/10_phi_protection.sql
+run "sql/11_audit_integrity (row hashes)"         sql -f sql/11_audit_integrity.sql
+run "sql/15_semantic_view"                        sql -f sql/15_semantic_view.sql
+run "sql/16_data_classification (tags + tag masking)" sql -f sql/16_data_classification.sql
+run "sql/17_rule_run_and_narrative"               sql -f sql/17_rule_run_and_narrative.sql
+run "sql/18_pipeline_automation (streams + task)" sql -f sql/18_pipeline_automation.sql
+run "sql/19_data_quality_metrics (DMFs)"          sql -f sql/19_data_quality_metrics.sql
+run "sql/20_sis_compat (actor as parameter)"      sql -f sql/20_sis_compat.sql
+run "sql/21_fix_row_scope"                        sql -f sql/21_fix_row_scope.sql
+run "sql/22_fix_reveal_predicate"                 sql -f sql/22_fix_reveal_predicate.sql
+
+# --- document intake -------------------------------------------------------
+run "sql/23_doc_stage_ingest (staging area)"      sql -f sql/23_doc_stage_ingest.sql
+run "sql/24_extraction_engine (2 backends)"       sql -f sql/24_extraction_engine.sql
+run "sql/25_resolve_and_approve (resolve + approve)" sql -f sql/25_resolve_and_approve.sql
+
+# sql/20 runs BEFORE this and ends with
+#   GRANT USAGE ON PROCEDURE RULES.SP_APPROVE_PROPOSAL(...) TO ROLE HO_REVIEWER
+# but sql/25 is what CREATES that procedure. On a fresh account the grant
+# therefore failed with "does not exist or not authorized", and the only
+# symptom would have been a reviewer unable to approve a proposal - in the app,
+# at the demo, not in a test. Re-running sql/20 here fixes the order; it is
+# idempotent, so running it twice costs a few seconds and nothing else.
+run "sql/20_sis_compat (re-run: grants need sql/25's procedures)" sql -f sql/20_sis_compat.sql
+
+# Documents into the staging area. AUTO_COMPRESS=FALSE matters twice over: the
+# COPY pattern matches *.md not *.md.gz, and AI_PARSE_DOCUMENT cannot read a
+# gzipped PDF.
+HERE="$(pwd -W 2>/dev/null || pwd)"
+run "PUT documents into RAW.DOC_STAGE" sql -q "USE ROLE HO_ADMIN; USE DATABASE HEALTHONE; USE WAREHOUSE HO_WH; PUT 'file://$HERE/corpus/*.md' @HEALTHONE.RAW.DOC_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE; PUT 'file://$HERE/staging/documents/*.pdf' @HEALTHONE.RAW.DOC_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE; ALTER STAGE HEALTHONE.RAW.DOC_STAGE REFRESH;"
+
+# --- Cortex, and the claim the product makes about itself -------------------
+# sql/09 is superseded by sql/27, which creates CONF.DOC_SEARCH for real.
+# sql/28 is the step that makes "AI proposes, a human approves" literally true:
+# it replaces the hand-seeded rules with AI-extracted, human-approved ones.
+# sql/31 and sql/32 run BEFORE the Cortex block, and the order is load-bearing:
+# sql/25's SP_APPROVE_PROPOSAL snapshots corroboration by reading
+# RULES.V_PROPOSAL_CORROBORATION, which sql/32 creates - and sql/28 CALLS that
+# procedure. With 32 after 28 the cutover died on "object does not exist" and
+# the account kept hand-seeded rules while reporting a successful build.
+run "sql/31_rule_enable_toggle (per-rule pause)"                 sql -f sql/31_rule_enable_toggle.sql
+run "sql/32_proposal_corroboration (nine checks + the score)"     sql -f sql/32_proposal_corroboration.sql
+
+# HO_NO_CORTEX=1 skips both. Set it when sql/34 reports every Cortex AI
+# function refused - the state of a Snowflake TRIAL as of Oct 2026, including
+# one created through the hackathon AI Data Cloud link. Running 27 or 28 there
+# does not degrade, it errors, and a half-applied cutover leaves rules partly
+# replaced.
+#
+# Skipping is safe BY DESIGN: RULES.EXTRACTOR_CONFIG seeds to PATTERN and
+# CONF.DOC_PARSER_CONFIG to NATIVE_TEXT, so the deterministic path is the
+# DEFAULT and the account never leaves it. app/data_access reads both tables
+# live, so the UI describes the pattern engine truthfully with no code change.
+if [ "${HO_NO_CORTEX:-0}" = "1" ]; then
+  echo "SKIP  sql/27_cortex_enabled        (HO_NO_CORTEX=1)"
+  echo "SKIP  sql/28_ai_extraction_cutover (HO_NO_CORTEX=1)"
+  echo "      -> extraction stays on the PATTERN engine; rules stay the sql/12"
+  echo "         seeds, labelled MODEL_NAME=manual-seed as they always were."
+else
+  run "sql/27_cortex_enabled (Search, PARSE_DOCUMENT, cross-region)" sql -f sql/27_cortex_enabled.sql
+  run "sql/28_ai_extraction_cutover (rules become AI-extracted)"     sql -f sql/28_ai_extraction_cutover.sql
+fi
+
+# --- sharing, cost, and the two features Aman asked for --------------------
+# 30 is not optional on a fresh trial: it is the only thing standing between a
+# runaway task and an empty account.
+
+# --- the app, then the grants that depend on it -------------------------
+# sql/29 and sql/30 both reference the Streamlit object, so deploying the app
+# is a BUILD STEP, not an afterthought. Running them first fails with
+# "Streamlit does not exist or not authorized", which is how a fresh account
+# ended up with no cost controls applied.
+echo -n "DEPLOY streamlit app ... "
+if (cd app && HO_PROFILE="${HO_PROFILE:-}" "../$HO_SF" streamlit deploy --replace --role HO_ADMIN) >> "$LOG" 2>&1; then
+  echo "OK"
+else
+  echo "FAIL (see $LOG)"; FAILED=$((FAILED + 1))
+fi
+
+run "sql/29_rbac_sharing (reviewer grants incl. dynamic tables)" sql -f sql/29_rbac_sharing.sql
+run "sql/30_cost_controls (account cap + warehouse caps)"        sql -f sql/30_cost_controls.sql
+
+# --- prove it --------------------------------------------------------------
+if [ "${SKIP_TESTS:-0}" = "1" ]; then
+  echo "SKIP  test suites (SKIP_TESTS=1)"
+else
+  SUITES="assertions test_detection_golden test_document_intake test_rule_toggle test_corroboration"
+  if [ "${HO_NO_CORTEX:-0}" = "1" ]; then
+    # test_corroboration asserts every REAL proposal is fully corroborated,
+    # which presumes the AI-extracted proposals sql/28 creates. Without Cortex
+    # there are none, so it would fail for a reason that is not a defect.
+    SUITES="assertions test_detection_golden test_document_intake test_rule_toggle"
+    echo "NOTE  test_corroboration excluded: it presumes AI-extracted"
+    echo "      proposals (sql/28), which HO_NO_CORTEX=1 skips. Not a defect."
+  fi
+  for t in $SUITES; do
+    out="build/.test.$t.out"
+    if "$HO_SF" sql -f "tests/$t.sql" > "$out" 2>&1; then :; fi
+    pass=$(grep -c '| PASS' "$out" 2>/dev/null || echo 0)
+    fail=$(grep -c '| FAIL' "$out" 2>/dev/null || echo 0)
+    printf "TEST  %-26s pass=%-4s fail=%s\n" "$t" "$pass" "$fail"
+    [ "$fail" = "0" ] || FAILED=$((FAILED + 1))
+    cat "$out" >> "$LOG"; rm -f "$out"
+  done
+fi
+
+echo ""
+echo "=== build finished. Full transcript: $LOG ==="
+if [ "$FAILED" = "0" ]; then
+  echo "No failures reported."
+  echo ""
+  echo "Remaining, by hand:"
+  echo "  1. cd app && $HO_SF streamlit deploy --replace --role HO_ADMIN"
+  echo "  2. python tests/smoke_app.py        (expects HO_CONNECTION to match)"
+  echo "  3. Set the judge login password - sql/29 section 4, commented on purpose."
+else
+  echo "$FAILED step(s) FAILED. Do not trust the account until they are fixed."
+  exit 1
+fi

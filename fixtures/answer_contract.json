@@ -1,0 +1,113 @@
+{
+  "_comment": "Answer contract v3 — the interface between backend and UI. v3 removes PHI entirely: the contract now carries a pseudonym (person_token) and an age band, never a name, date of birth or source system id. Identity is retrieved only through the break-glass path (data_access.get_identity) after a reason-coded, audited reveal. If the UI can render from this file, it can render without ever touching PHI.",
+  "_window_note": "The MISSING window starts 2026-05-27 = GREATEST(therapy start 2026-02-02, CKD onset 2024-11-10, anchor 2026-09-01 minus interval 90 plus grace 7). Rule effective_date is deliberately NOT part of this GREATEST — see docs/self-tracking/03_SCHEMA_DESIGN.md §14.",
+  "case_id": "CAS-DEMO-0001",
+  "person_id": "PER-001024",
+  "case_type": "MONITORING_GAP",
+  "status": "OPEN",
+  "priority": "HIGH",
+  "priority_factors": [
+    "137 days since last qualifying result",
+    "Rule requires monitoring every 90 days (+7 grace)"
+  ],
+  "person": {
+    "age_band": "55-69",
+    "sex": "F",
+    "primary_clinic": "Northgate Clinic",
+    "plan_code": "HO-PLUS",
+    "active_condition_count": 1,
+    "active_med_count": 1
+  },
+  "reference_event_type": "LAST_QUALIFYING_LAB",
+  "reference_event_date": "2026-04-17",
+  "days_since_reference": 137,
+  "window_start_date": "2026-05-27",
+  "rule_ref": {
+    "rule_id": "RUL-001",
+    "version": 1,
+    "drug": "CardioZen",
+    "precondition_type": "CONDITION",
+    "precondition_value": "chronic kidney disease",
+    "required_test": "serum potassium",
+    "interval_days": 90,
+    "grace_days": 7,
+    "interval_source_phrase": "checked at least every three months",
+    "source_doc": "SAFETY_DOC_007",
+    "source_passage": "section 3",
+    "approved_by": "aman",
+    "approved_at": "2026-08-21T02:00:00Z"
+  },
+  "finding": "Serum potassium monitoring appears overdue for this patient under rule RUL-001 v1. The last qualifying result was recorded 137 days ago, against a required interval of 90 days plus a 7-day grace period.",
+  "claims": [
+    {
+      "claim_key": "DRUG_ACTIVE",
+      "text": "CardioZen is currently active for this patient.",
+      "status": "AGREES",
+      "evidence": [
+        {
+          "type": "medication",
+          "source": "EHR",
+          "id": "ORD-000001",
+          "detail": "CardioZen, status ACTIVE, started 2026-02-02"
+        },
+        {
+          "type": "pharmacy_fill",
+          "source": "PHARMACY",
+          "id": "FLL-000001",
+          "detail": "30-day fill dispensed 2026-08-04 (6 fills on record)"
+        }
+      ]
+    },
+    {
+      "claim_key": "CONDITION_PRESENT",
+      "text": "A chronic kidney disease diagnosis is recorded.",
+      "status": "AGREES",
+      "evidence": [
+        {
+          "type": "diagnosis",
+          "source": "EHR",
+          "id": "DXR-000001",
+          "detail": "Chronic kidney disease, onset 2024-11-10"
+        },
+        {
+          "type": "claim_line",
+          "source": "CLAIMS",
+          "id": "CLA-000001",
+          "detail": "Nephrology outpatient review, 2026-03-30"
+        }
+      ]
+    },
+    {
+      "claim_key": "REQUIRED_LAB",
+      "text": "No serum potassium result was found in the available records between 2026-05-27 and 2026-09-01.",
+      "status": "MISSING",
+      "evidence": [],
+      "searched": "CONF_LAB_RESULT via P360_LAB_TIMELINE, test = serum potassium (LAB-K), person PER-001024, window 2026-05-27 to 2026-09-01 (later of therapy start, condition onset, and interval plus grace). Results whose test name could not be mapped to the controlled vocabulary are excluded from this search and are shown separately in the lab timeline."
+    }
+  ],
+  "conflicts": [],
+  "assistant_answer_template": "This case was raised because rule {rule_id} v{version} (from {source_doc}, {source_passage}) requires {required_test} every {interval_days} days for patients on {drug} with {precondition_value}. The evidence shows: {claims_summary}. {missing_statement}",
+  "disposition": null,
+  "disposition_options": [
+    "ESCALATE_FOR_CLINICAL_REVIEW",
+    "REQUEST_ADDITIONAL_EVIDENCE",
+    "MARK_REVIEWED",
+    "DISMISS_WITH_REASON"
+  ],
+  "audit": [
+    {
+      "event": "RULE_APPROVED",
+      "by": "aman",
+      "at": "2026-08-21T02:00:00Z",
+      "detail": "RUL-001 v1 activated from SAFETY_DOC_007 section 3"
+    },
+    {
+      "event": "CASE_CREATED",
+      "by": "system:rule_eval",
+      "at": "2026-08-21T02:05:00Z",
+      "detail": "Detected by DT_CASE_CANDIDATE against P360 timelines"
+    }
+  ],
+  "person_token": "PT-849509••••",
+  "_phi_note": "No name, DOB, patient_id or member_id appears in this file by design. Fixture mode must not be able to leak what live mode protects."
+}

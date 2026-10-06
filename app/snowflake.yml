@@ -1,0 +1,21 @@
+definition_version: 2
+entities:
+  ho360:
+    type: streamlit
+    identifier:
+      name: HEALTHONE_360
+      schema: APP
+      database: HEALTHONE
+    stage: HEALTHONE.APP.STREAMLIT_STAGE
+    query_warehouse: HO_WH
+    main_file: streamlit_app.py
+    title: "HealthOne 360 - Patient Safety Case Investigator"
+    comment: "Turns written safety guidance into governed, evidence-cited review cases."
+    artifacts:
+      - streamlit_app.py
+      - data_access.py
+      - theme.py
+      - environment.yml
+      # Pins the light theme inside Snowsight too. Without it the app inherits
+      # Snowsight's colour scheme and dark-mode users get black dropdowns.
+      - .streamlit/config.toml
